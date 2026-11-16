@@ -8,6 +8,7 @@ export default function ClientPortalPage() {
   const [toys, setToys] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [currentYear, setCurrentYear] = useState('');
 
   // Guarda qual foto está selecionada em cada card (pelo ID do item)
   const [selectedSpacePhoto, setSelectedSpacePhoto] = useState({});
@@ -15,6 +16,7 @@ export default function ClientPortalPage() {
 
   useEffect(() => {
     document.body.dataset.module = 'portal';
+    setCurrentYear(String(new Date().getFullYear()));
 
     async function fetchData() {
       try {
@@ -286,7 +288,7 @@ export default function ClientPortalPage() {
             Espaço Vivence — Locação de Espaços e Brinquedos
           </p>
           <small className="text-vivence-muted">
-            © {new Date().getFullYear()} Todos os direitos reservados.
+            © {currentYear} Todos os direitos reservados.
           </small>
         </div>
       </footer>
