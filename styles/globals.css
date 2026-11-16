@@ -1,0 +1,284 @@
+:root {
+  --vivence-verde-claro: #618434;
+  --vivence-verde-hover: #4f6a29;
+  --vivence-verde-escuro: #383f0c;
+  --vivence-bege: #a9a991;
+  --vivence-marrom-claro: #4c2b08;
+  --vivence-marrom-escuro: #6d3914;
+  --vivence-fundo: #f4f6f0;
+  --vivence-branco: #ffffff;
+  --vivence-cinza-claro: #e9ecef;
+  --vivence-cinza-borda: #dee2e6;
+  --vivence-cinza-texto: #5c635a;
+  --vivence-sucesso-bg: #d1e7dd;
+  --vivence-sucesso-texto: #0f5132;
+  --vivence-erro-bg: #f8d7da;
+  --vivence-erro-texto: #842029;
+}
+
+body {
+  background-color: var(--vivence-fundo) !important;
+  color: var(--vivence-verde-escuro) !important;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Fundos e Cores da Marca */
+.bg-vivence-app { background-color: var(--vivence-fundo) !important; }
+.bg-vivence-card { background-color: var(--vivence-branco) !important; }
+.bg-vivence-subtle { background-color: var(--vivence-cinza-claro) !important; }
+.bg-vivence-dark { background-color: var(--vivence-verde-escuro) !important; color: var(--vivence-branco) !important; }
+.bg-vivence-primary { background-color: var(--vivence-verde-claro) !important; color: var(--vivence-branco) !important; }
+.bg-vivence-brown { background-color: var(--vivence-marrom-claro) !important; color: var(--vivence-branco) !important; }
+
+/* Textos */
+.text-vivence-primary { color: var(--vivence-verde-claro) !important; }
+.text-vivence-dark { color: var(--vivence-verde-escuro) !important; }
+.text-vivence-muted { color: var(--vivence-bege) !important; }
+.text-vivence-body { color: var(--vivence-cinza-texto) !important; }
+.text-vivence-light { color: var(--vivence-branco) !important; }
+.text-vivence-brown { color: var(--vivence-marrom-claro) !important; }
+
+/* Botões Personalizados */
+.btn-vivence-primary {
+  background-color: var(--vivence-verde-claro) !important;
+  color: var(--vivence-branco) !important;
+  border: none !important;
+  font-weight: 600 !important;
+  padding: 0.6rem 1.25rem !important;
+  border-radius: 0.6rem !important;
+  transition: all 0.2s ease-in-out !important;
+}
+.btn-vivence-primary:hover:not(:disabled) {
+  background-color: var(--vivence-verde-hover) !important;
+  transform: translateY(-1px);
+}
+.btn-vivence-primary:disabled,
+.btn-vivence-brown:disabled {
+  opacity: 0.65 !important;
+  cursor: not-allowed !important;
+}
+
+.btn-vivence-brown {
+  background-color: var(--vivence-marrom-claro) !important;
+  color: var(--vivence-branco) !important;
+  border: none !important;
+  font-weight: 600 !important;
+  padding: 0.6rem 1.25rem !important;
+  border-radius: 0.6rem !important;
+  transition: all 0.2s ease-in-out !important;
+}
+.btn-vivence-brown:hover:not(:disabled) {
+  background-color: var(--vivence-marrom-escuro) !important;
+  transform: translateY(-1px);
+}
+
+.btn-vivence-outline {
+  background-color: transparent !important;
+  color: var(--vivence-verde-escuro) !important;
+  border: 1.5px solid var(--vivence-cinza-borda) !important;
+  font-weight: 600 !important;
+  border-radius: 0.6rem !important;
+}
+.btn-vivence-outline:hover {
+  border-color: var(--vivence-verde-claro) !important;
+  color: var(--vivence-verde-claro) !important;
+}
+
+.btn-vivence-error {
+  background-color: var(--vivence-erro-texto) !important;
+  color: var(--vivence-branco) !important;
+  border: none !important;
+  font-weight: 600 !important;
+  border-radius: 0.6rem !important;
+}
+
+/* Cartões e Formulários */
+.card-vivence {
+  background-color: var(--vivence-branco) !important;
+  border: 1px solid var(--vivence-cinza-borda) !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 4px 12px rgba(56, 63, 12, 0.05) !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+}
+.card-vivence-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 24px rgba(56, 63, 12, 0.1) !important;
+}
+
+.input-vivence {
+  border: 1.5px solid var(--vivence-cinza-borda) !important;
+  border-radius: 0.6rem !important;
+  padding: 0.65rem 0.9rem !important;
+  color: var(--vivence-verde-escuro) !important;
+  background-color: var(--vivence-branco) !important;
+}
+.input-vivence:focus {
+  border-color: var(--vivence-verde-claro) !important;
+  box-shadow: 0 0 0 3px rgba(97, 132, 52, 0.18) !important;
+  outline: none !important;
+}
+
+/* Galeria de Fotos e Miniaturas */
+.photo-cover-box {
+  height: 200px;
+  width: 100%;
+  background-color: var(--vivence-cinza-claro);
+  position: relative;
+  overflow: hidden;
+}
+.photo-cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.photo-thumb-strip {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.5rem 0;
+}
+.photo-thumb-item {
+  width: 54px;
+  height: 54px;
+  min-width: 54px;
+  border-radius: 0.45rem;
+  object-fit: cover;
+  cursor: pointer;
+  border: 2px solid var(--vivence-cinza-borda);
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+.photo-thumb-item:hover,
+.photo-thumb-active {
+  border-color: var(--vivence-verde-claro);
+  transform: scale(1.04);
+}
+.photo-preview-wrapper {
+  position: relative;
+  display: inline-block;
+}
+.photo-remove-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--vivence-erro-texto);
+  color: var(--vivence-branco);
+  border: none;
+  font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* Banner Principal do Portal */
+.hero-vivence {
+  background: linear-gradient(135deg, var(--vivence-verde-escuro) 0%, var(--vivence-marrom-claro) 100%) !important;
+  color: var(--vivence-branco) !important;
+  padding: 4.5rem 1.5rem !important;
+}
+
+/* Badges e Alertas */
+.badge-vivence-success {
+  background-color: var(--vivence-sucesso-bg) !important;
+  color: var(--vivence-sucesso-texto) !important;
+  font-weight: 600 !important;
+}
+.badge-vivence-error {
+  background-color: var(--vivence-erro-bg) !important;
+  color: var(--vivence-erro-texto) !important;
+  font-weight: 600 !important;
+}
+.badge-vivence-neutral {
+  background-color: var(--vivence-cinza-claro) !important;
+  color: var(--vivence-verde-escuro) !important;
+  font-weight: 600 !important;
+}
+
+/* Layout e Menu Lateral Responsivo (Admin) */
+.admin-wrapper {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.sidebar-vivence {
+  width: 270px;
+  min-width: 270px;
+  background-color: var(--vivence-verde-escuro);
+  color: var(--vivence-branco);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.5rem 1.25rem;
+  z-index: 1045;
+  transition: transform 0.3s ease-in-out;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.8rem 1rem;
+  border-radius: 0.65rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--vivence-bege);
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  margin-bottom: 0.35rem;
+}
+
+.sidebar-link:hover {
+  background-color: var(--vivence-marrom-claro);
+  color: var(--vivence-branco);
+}
+
+.sidebar-link-active {
+  background-color: var(--vivence-verde-claro) !important;
+  color: var(--vivence-branco) !important;
+  font-weight: 600;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  z-index: 1040;
+}
+
+@media (max-width: 991.98px) {
+  .sidebar-vivence {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+  }
+  .sidebar-vivence.open {
+    transform: translateX(0);
+  }
+}
+
+/* Modal */
+.modal-backdrop-vivence {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  z-index: 1055;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
