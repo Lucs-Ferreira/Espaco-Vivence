@@ -1,15 +1,35 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { supabase } from '../../config/supabase';
 import Sidebar from '../../components/Sidebar';
 import Modal from '../../components/Modal';
+import ReservationsAgenda from '../../components/ReservationsAgenda';
+import { getMonitorDailyRate } from '../../modules/reservations/reservation';
+
+function getAdminSaveErrorMessage(error, resourceName) {
+  const permissionDenied = error?.code === '42501' || error?.status === 403;
+  if (permissionDenied) {
+    return 'O Supabase recusou a alteração pelas regras de acesso. Atualize uma vez sql/admin-access.sql; depois, qualquer conta autenticada poderá administrar.';
+  }
+  return `Não foi possível salvar ${resourceName}. Confira os dados e tente novamente.`;
+}
 
 export default function AdminPage() {
+  const [session, setSession] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [signingIn, setSigningIn] = useState(false);
   const [activeMenu, setActiveMenu] = useState('cadastros');
   const [activeTab, setActiveTab] = useState('spaces');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [monitorDailyRate, setMonitorDailyRate] = useState('');
+  const [savingMonitorRate, setSavingMonitorRate] = useState(false);
 
   const [spaces, setSpaces] = useState([]);
   const [toys, setToys] = useState([]);
@@ -41,18 +61,94 @@ export default function AdminPage() {
   });
 
   useEffect(() => {
-    document.body.dataset.module = 'admin';
-    fetchData();
+    let active = true;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active) return;
+      setSession(nextSession);
+      setIsAdmin(Boolean(nextSession));
+      setAuthLoading(false);
+      setAuthError('');
+    });
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) {
+        setAuthError('Não foi possível verificar a sessão. Atualize a página e tente novamente.');
+        setSession(null);
+      } else {
+        setSession(data.session);
+      }
+      setIsAdmin(Boolean(data.session));
+      setAuthLoading(false);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
+
+  useEffect(() => {
+    document.body.dataset.module = 'admin';
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin === true) fetchData();
+  }, [isAdmin]);
 
   async function fetchData() {
     try {
-      const { data: spacesData } = await supabase.from('spaces').select('*').order('name');
-      const { data: toysData } = await supabase.from('toys').select('*').order('name');
+      const { data: spacesData, error: spacesError } = await supabase
+        .from('spaces')
+        .select('*')
+        .order('name');
+      if (spacesError) throw spacesError;
+
+      const { data: toysData, error: toysError } = await supabase
+        .from('toys')
+        .select('*')
+        .order('name');
+      if (toysError) throw toysError;
+
+      const monitorRate = await getMonitorDailyRate();
       setSpaces(spacesData || []);
       setToys(toysData || []);
+      setMonitorDailyRate(String(monitorRate));
     } catch (err) {
       console.error('Erro ao buscar dados:', err);
+      setAuthError('Não foi possível carregar os dados administrativos. Verifique as permissões no Supabase.');
+    }
+  }
+
+  async function handleSignIn(event) {
+    event.preventDefault();
+    setSigningIn(true);
+    setAuthError('');
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword,
+      });
+      if (error) throw error;
+      setLoginPassword('');
+    } catch (error) {
+      console.error('Erro ao entrar na administração:', error);
+      setAuthError('Não foi possível entrar. Confira o e-mail e a senha da conta.');
+    } finally {
+      setSigningIn(false);
+    }
+  }
+
+  async function handleSignOut() {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      console.error('Erro ao sair da administração:', error);
+      setAuthError('Não foi possível encerrar a sessão. Tente novamente.');
     }
   }
 
@@ -176,7 +272,7 @@ export default function AdminPage() {
       setModalConfig({
         isOpen: true,
         title: 'Erro ao Salvar',
-        message: 'Não foi possível salvar as alterações. Verifique se executou o SQL de permissões no Supabase.',
+        message: getAdminSaveErrorMessage(err, 'o espaço'),
         type: 'error',
         onConfirm: null,
       });
@@ -336,12 +432,63 @@ export default function AdminPage() {
       setModalConfig({
         isOpen: true,
         title: 'Erro ao Salvar',
-        message: 'Não foi possível salvar o brinquedo. Verifique se executou o SQL no Supabase.',
+        message: getAdminSaveErrorMessage(err, 'o brinquedo'),
         type: 'error',
         onConfirm: null,
       });
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleSaveMonitorRate(event) {
+    event.preventDefault();
+    const rate = Number(monitorDailyRate);
+
+    if (!Number.isFinite(rate) || rate < 0) {
+      setModalConfig({
+        isOpen: true,
+        title: 'Valor inválido',
+        message: 'Informe um valor válido, igual ou maior que zero.',
+        type: 'error',
+        onConfirm: null,
+      });
+      return;
+    }
+
+    setSavingMonitorRate(true);
+    try {
+      const { data, error } = await supabase
+        .from('rental_settings')
+        .update({
+          monitor_daily_rate: rate,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) throw new Error('Configuração do monitor não encontrada.');
+
+      setModalConfig({
+        isOpen: true,
+        title: 'Valor atualizado',
+        message: 'O valor da diária do monitor foi salvo.',
+        type: 'success',
+        onConfirm: null,
+      });
+    } catch (error) {
+      console.error('Erro ao salvar o valor do monitor:', error);
+      setModalConfig({
+        isOpen: true,
+        title: 'Erro ao salvar',
+        message: 'Não foi possível salvar. Confira se a migração de reservas foi aplicada e tente novamente.',
+        type: 'error',
+        onConfirm: null,
+      });
+    } finally {
+      setSavingMonitorRate(false);
     }
   }
 
@@ -398,6 +545,94 @@ export default function AdminPage() {
     }
   }
 
+  if (authLoading) {
+    return (
+      <main className="min-vh-100 d-flex align-items-center justify-content-center bg-vivence-app p-3">
+        <div className="card-vivence p-5 text-center text-vivence-body">
+          <i className="fa-solid fa-spinner fa-spin me-2"></i>
+          Verificando acesso...
+        </div>
+      </main>
+    );
+  }
+
+  if (!session) {
+    return (
+      <main className="min-vh-100 d-flex align-items-center justify-content-center bg-vivence-app p-3">
+        <section className="card-vivence p-4 p-md-5 w-100" style={{ maxWidth: '440px' }}>
+          <div className="text-center mb-4">
+            <i className="fa-solid fa-leaf fs-1 text-vivence-primary mb-3"></i>
+            <h1 className="h3 fw-bold text-vivence-dark">Espaço Vivence</h1>
+            <p className="text-vivence-body mb-0">Entre para acessar a administração.</p>
+          </div>
+          {authError && <div className="alert alert-danger" role="alert">{authError}</div>}
+          <form onSubmit={handleSignIn}>
+            <div className="mb-3">
+              <label htmlFor="admin-login-email" className="form-label fw-semibold">
+                Usuário (e-mail)
+              </label>
+              <input
+                id="admin-login-email"
+                type="email"
+                autoComplete="username"
+                className="form-control input-vivence"
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+                required
+              />
+            </div>
+            <div className="mb-4">
+              <label htmlFor="admin-login-password" className="form-label fw-semibold">
+                Senha
+              </label>
+              <input
+                id="admin-login-password"
+                type="password"
+                autoComplete="current-password"
+                className="form-control input-vivence"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" className="btn-vivence-primary w-100" disabled={signingIn}>
+              {signingIn ? 'Entrando...' : 'Entrar'}
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
+  if (isAdmin === null) {
+    return (
+      <main className="min-vh-100 d-flex align-items-center justify-content-center bg-vivence-app p-3">
+        <div className="card-vivence p-5 text-center text-vivence-body">
+          <i className="fa-solid fa-spinner fa-spin me-2"></i>
+          Confirmando permissão administrativa...
+        </div>
+      </main>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <main className="min-vh-100 d-flex align-items-center justify-content-center bg-vivence-app p-3">
+        <section className="card-vivence p-4 p-md-5 w-100 text-center" style={{ maxWidth: '520px' }}>
+          <i className="fa-solid fa-user-shield fs-1 text-vivence-brown mb-3"></i>
+          <h1 className="h3 fw-bold text-vivence-dark">Acesso não autorizado</h1>
+          <p className="text-vivence-body">
+            Esta conta ainda não foi liberada para administrar o sistema.
+          </p>
+          {authError && <div className="alert alert-danger" role="alert">{authError}</div>}
+          <button type="button" className="btn btn-vivence-outline" onClick={handleSignOut}>
+            Sair da conta
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <div className="admin-wrapper bg-vivence-app">
       <Sidebar
@@ -422,44 +657,61 @@ export default function AdminPage() {
             <div>
               <h1 className="fs-5 fw-bold m-0 text-vivence-dark text-capitalize">
                 <i className="fa-solid fa-sliders me-2 text-vivence-primary"></i>
-                {activeMenu}
+                {activeMenu === 'reservas' ? 'Reservas e Agenda' : activeMenu}
               </h1>
             </div>
           </div>
 
-          <a href="/" className="btn btn-vivence-outline btn-sm d-flex align-items-center gap-2">
-            <i className="fa-solid fa-store"></i>
-            <span className="d-none d-sm-inline">Portal do Cliente</span>
-          </a>
+          <div className="d-flex align-items-center gap-2">
+            <span className="small text-vivence-body d-none d-md-inline">
+              {session.user.email}
+            </span>
+            <Link href="/" className="btn btn-vivence-outline btn-sm d-flex align-items-center gap-2">
+              <i className="fa-solid fa-store"></i>
+              <span className="d-none d-sm-inline">Portal</span>
+            </Link>
+            <button
+              type="button"
+              className="btn btn-vivence-outline btn-sm"
+              onClick={handleSignOut}
+              aria-label="Sair da administração"
+              title="Sair"
+            >
+              <i className="fa-solid fa-right-from-bracket"></i>
+            </button>
+          </div>
         </header>
 
         {/* Conteúdo Principal */}
         <main className="container-fluid p-3 p-md-4">
+          {authError && <div className="alert alert-danger" role="alert">{authError}</div>}
           {/* Resumo Rápido */}
-          <div className="row g-3 mb-4">
-            <div className="col-6 col-md-3">
-              <div className="card-vivence p-3 d-flex align-items-center gap-3">
-                <div className="rounded-3 p-3 bg-vivence-primary d-flex align-items-center justify-content-center">
-                  <i className="fa-solid fa-champagne-glasses fs-5"></i>
+          {activeMenu === 'cadastros' && (
+            <div className="row g-3 mb-4">
+              <div className="col-6 col-md-3">
+                <div className="card-vivence p-3 d-flex align-items-center gap-3">
+                  <div className="rounded-3 p-3 bg-vivence-primary d-flex align-items-center justify-content-center">
+                    <i className="fa-solid fa-champagne-glasses fs-5"></i>
+                  </div>
+                  <div>
+                    <small className="text-vivence-body d-block">Espaços</small>
+                    <span className="fs-4 fw-bold text-vivence-dark">{spaces.length}</span>
+                  </div>
                 </div>
-                <div>
-                  <small className="text-vivence-body d-block">Espaços</small>
-                  <span className="fs-4 fw-bold text-vivence-dark">{spaces.length}</span>
+              </div>
+              <div className="col-6 col-md-3">
+                <div className="card-vivence p-3 d-flex align-items-center gap-3">
+                  <div className="rounded-3 p-3 bg-vivence-brown d-flex align-items-center justify-content-center">
+                    <i className="fa-solid fa-puzzle-piece fs-5"></i>
+                  </div>
+                  <div>
+                    <small className="text-vivence-body d-block">Brinquedos</small>
+                    <span className="fs-4 fw-bold text-vivence-dark">{toys.length}</span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="col-6 col-md-3">
-              <div className="card-vivence p-3 d-flex align-items-center gap-3">
-                <div className="rounded-3 p-3 bg-vivence-brown d-flex align-items-center justify-content-center">
-                  <i className="fa-solid fa-puzzle-piece fs-5"></i>
-                </div>
-                <div>
-                  <small className="text-vivence-body d-block">Brinquedos</small>
-                  <span className="fs-4 fw-bold text-vivence-dark">{toys.length}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
 
           {activeMenu === 'cadastros' && (
             <>
@@ -484,6 +736,16 @@ export default function AdminPage() {
                 >
                   <i className="fa-solid fa-puzzle-piece me-2"></i>
                   Brinquedos ({toys.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('services')}
+                  className={`btn ${
+                    activeTab === 'services' ? 'btn-vivence-primary' : 'btn-vivence-outline bg-vivence-card'
+                  }`}
+                >
+                  <i className="fa-solid fa-user-tie me-2"></i>
+                  Serviços
                 </button>
               </div>
 
@@ -947,10 +1209,56 @@ export default function AdminPage() {
                   </div>
                 </div>
               )}
+
+              {activeTab === 'services' && (
+                <div className="row g-4">
+                  <div className="col-12 col-lg-6">
+                    <div className="card-vivence p-4">
+                      <h5 className="fw-bold text-vivence-dark mb-2">
+                        <i className="fa-solid fa-user-tie text-vivence-primary me-2"></i>
+                        Serviço de monitor
+                      </h5>
+                      <p className="text-vivence-body">
+                        Cadastre o valor cobrado por diária. O cliente poderá solicitar um monitor junto com o espaço,
+                        os brinquedos ou ambos.
+                      </p>
+                      <form onSubmit={handleSaveMonitorRate}>
+                        <label htmlFor="monitor-daily-rate" className="form-label small fw-bold text-vivence-body">
+                          Valor da diária (R$)
+                        </label>
+                        <div className="input-group mb-3">
+                          <span className="input-group-text bg-vivence-subtle border-0 fw-bold text-vivence-dark">
+                            R$
+                          </span>
+                          <input
+                            id="monitor-daily-rate"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={monitorDailyRate}
+                            onChange={(event) => setMonitorDailyRate(event.target.value)}
+                            className="form-control input-vivence"
+                            required
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="btn-vivence-primary"
+                          disabled={savingMonitorRate}
+                        >
+                          {savingMonitorRate ? 'Salvando...' : 'Salvar valor'}
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
-          {activeMenu !== 'cadastros' && (
+          {activeMenu === 'reservas' && <ReservationsAgenda />}
+
+          {activeMenu !== 'cadastros' && activeMenu !== 'reservas' && (
             <div className="card-vivence p-5 text-center">
               <i className="fa-solid fa-gears fs-1 text-vivence-primary mb-3 d-block"></i>
               <h4 className="fw-bold text-vivence-dark text-capitalize">Módulo de {activeMenu}</h4>
