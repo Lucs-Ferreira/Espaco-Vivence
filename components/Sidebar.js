@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import BrandMark from './BrandMark';
 
 export default function Sidebar({ activeMenu = 'cadastros', setActiveMenu, isOpen, onClose }) {
   const menus = [
@@ -24,7 +25,7 @@ export default function Sidebar({ activeMenu = 'cadastros', setActiveMenu, isOpe
         <div>
           <div className="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-secondary">
             <div className="d-flex align-items-center gap-2">
-              <i className="fa-solid fa-leaf fs-4 text-vivence-primary"></i>
+              <BrandMark size={24} className="text-vivence-primary" />
               <div>
                 <h2 className="fs-5 fw-bold m-0 text-vivence-light">Espaço Vivence</h2>
                 <small className="text-vivence-muted d-block" style={{ fontSize: '0.7rem', letterSpacing: '1px' }}>

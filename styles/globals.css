@@ -41,6 +41,14 @@ body {
 .text-vivence-light { color: var(--vivence-branco) !important; }
 .text-vivence-brown { color: var(--vivence-marrom-claro) !important; }
 
+.vivence-brand-mark {
+  display: inline-block;
+  flex: 0 0 auto;
+  background-color: currentColor;
+  -webkit-mask: url('/vivence-logo.png') center / contain no-repeat;
+  mask: url('/vivence-logo.png') center / contain no-repeat;
+}
+
 /* Botões Personalizados */
 .btn-vivence-primary {
   background-color: var(--vivence-verde-claro) !important;

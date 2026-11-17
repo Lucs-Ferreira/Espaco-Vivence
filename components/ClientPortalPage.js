@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { supabase } from '../config/supabase';
+import BrandMark from './BrandMark';
 import Modal from './Modal';
 import {
   checkReservationAvailability,
@@ -722,7 +723,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
       <nav className="navbar navbar-expand-lg bg-vivence-card border-bottom sticky-top shadow-sm py-3">
         <div className="container">
           <Link className="navbar-brand fw-bold fs-4 text-vivence-primary d-flex align-items-center gap-2" href="/">
-            <i className="fa-solid fa-leaf"></i>
+            <BrandMark size={24} />
             Espaço Vivence
           </Link>
 
@@ -1592,7 +1593,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
       {!cartOnly && <footer className="bg-vivence-dark py-4 text-center mt-auto">
         <div className="container">
           <p className="fw-semibold mb-1 text-vivence-light">
-            <i className="fa-solid fa-leaf me-2 text-vivence-primary"></i>
+            <BrandMark size={20} className="me-2" />
             Espaço Vivence — Locação de Espaços e Brinquedos
           </p>
           <small className="text-vivence-muted">

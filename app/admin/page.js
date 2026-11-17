@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { supabase } from '../../config/supabase';
+import BrandMark from '../../components/BrandMark';
 import Sidebar from '../../components/Sidebar';
 import Modal from '../../components/Modal';
 import ReservationsAgenda from '../../components/ReservationsAgenda';
@@ -561,7 +562,7 @@ export default function AdminPage() {
       <main className="min-vh-100 d-flex align-items-center justify-content-center bg-vivence-app p-3">
         <section className="card-vivence p-4 p-md-5 w-100" style={{ maxWidth: '440px' }}>
           <div className="text-center mb-4">
-            <i className="fa-solid fa-leaf fs-1 text-vivence-primary mb-3"></i>
+            <BrandMark size={48} className="text-vivence-primary mb-3" />
             <h1 className="h3 fw-bold text-vivence-dark">Espaço Vivence</h1>
             <p className="text-vivence-body mb-0">Entre para acessar a administração.</p>
           </div>
