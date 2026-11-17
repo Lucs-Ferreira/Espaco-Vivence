@@ -1,5 +1,59 @@
 -- Execute depois de sql/admin-access.sql.
 -- Não remove reservas nem clientes existentes.
+-- Remove a unicidade do documento; solicitações pendentes só são apagadas após confirmação no portal.
+
+do $$
+declare
+  v_constraint record;
+  v_index record;
+begin
+  for v_constraint in
+    select constraint_row.conname
+    from pg_constraint constraint_row
+    join pg_class table_row on table_row.oid = constraint_row.conrelid
+    join pg_namespace table_schema on table_schema.oid = table_row.relnamespace
+    where table_schema.nspname = 'public'
+      and table_row.relname = 'clients'
+      and constraint_row.contype = 'u'
+      and cardinality(constraint_row.conkey) = 1
+      and exists (
+        select 1
+        from pg_attribute column_row
+        where column_row.attrelid = constraint_row.conrelid
+          and column_row.attnum = constraint_row.conkey[1]
+          and column_row.attname = 'document'
+      )
+  loop
+    execute format('alter table public.clients drop constraint %I', v_constraint.conname);
+  end loop;
+
+  for v_index in
+    select index_row.relname
+    from pg_index index_data
+    join pg_class table_row on table_row.oid = index_data.indrelid
+    join pg_namespace table_schema on table_schema.oid = table_row.relnamespace
+    join pg_class index_row on index_row.oid = index_data.indexrelid
+    join pg_namespace index_schema on index_schema.oid = index_row.relnamespace
+    join pg_attribute column_row
+      on column_row.attrelid = index_data.indrelid
+      and column_row.attnum = index_data.indkey[0]
+    where table_schema.nspname = 'public'
+      and table_row.relname = 'clients'
+      and index_schema.nspname = 'public'
+      and index_data.indisunique
+      and not index_data.indisprimary
+      and index_data.indnkeyatts = 1
+      and column_row.attname = 'document'
+      and not exists (
+        select 1
+        from pg_constraint constraint_row
+        where constraint_row.conindid = index_data.indexrelid
+      )
+  loop
+    execute format('drop index if exists public.%I', v_index.relname);
+  end loop;
+end;
+$$;
 
 alter table public.reservations
   add column if not exists subtotal numeric(10, 2) not null default 0,
@@ -195,6 +249,8 @@ $$;
 drop function if exists public.submit_reservation_request(text, text, text, uuid, date, date, jsonb, text);
 drop function if exists public.submit_reservation_request(text, text, text, uuid, date, date, jsonb, text, text, boolean);
 drop function if exists public.submit_reservation_request(text, text, text, text, uuid, date, date, jsonb, text, text, boolean);
+drop function if exists public.submit_reservation_request(text, text, text, text, uuid, date, date, time, jsonb, text, text, boolean);
+drop function if exists public.submit_reservation_request(text, text, text, text, uuid, date, date, time, jsonb, text, text, boolean, text);
 
 create or replace function public.submit_reservation_request(
   p_client_name text,
@@ -208,9 +264,10 @@ create or replace function public.submit_reservation_request(
   p_toys jsonb default '[]'::jsonb,
   p_notes text default null,
   p_delivery_address text default null,
-  p_monitor_required boolean default false
+  p_monitor_required boolean default false,
+  p_existing_action text default 'check'
 )
-returns uuid
+returns jsonb
 language plpgsql
 security definer
 set search_path = ''
@@ -230,6 +287,11 @@ declare
   v_availability jsonb;
   v_lock_key integer;
   v_duplicate_toys boolean;
+  v_pending_count integer := 0;
+  v_approved_count integer := 0;
+  v_pending_reservation_ids uuid[] := array[]::uuid[];
+  v_deleted_count integer := 0;
+  v_existing_action text := coalesce(nullif(btrim(p_existing_action), ''), 'check');
 begin
   if length(btrim(coalesce(p_client_name, ''))) < 2
     or length(btrim(p_client_name)) > 120 then
@@ -294,6 +356,59 @@ begin
 
   if p_space_id is null and jsonb_array_length(coalesce(p_toys, '[]'::jsonb)) = 0 then
     raise exception using errcode = '22023', message = 'Selecione um espaço ou pelo menos um brinquedo.';
+  end if;
+
+  if v_existing_action not in ('check', 'delete_pending_and_submit', 'allow_new') then
+    raise exception using errcode = '22023', message = 'A confirmação de solicitação anterior é inválida.';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('reservation-document:' || v_client_document)::bigint);
+
+  select
+    count(*) filter (where lower(coalesce(r.status, '')) = 'solicitacao_recebida'),
+    count(*) filter (
+      where lower(coalesce(r.status, '')) not in (
+        '', 'solicitacao_recebida', 'cancelada', 'cancelado', 'rejeitada', 'rejeitado'
+      )
+    )
+  into v_pending_count, v_approved_count
+  from public.reservations r
+  join public.clients c on c.id = r.client_id
+  where regexp_replace(coalesce(c.document, ''), '[^0-9]', '', 'g') = v_client_document;
+
+  if v_pending_count > 0 and v_existing_action <> 'delete_pending_and_submit' then
+    return jsonb_build_object('status', 'pending_existing');
+  end if;
+
+  if v_pending_count = 0
+    and v_approved_count > 0
+    and v_existing_action = 'check' then
+    return jsonb_build_object('status', 'approved_existing');
+  end if;
+
+  if v_existing_action = 'delete_pending_and_submit' and v_pending_count > 0 then
+    select coalesce(array_agg(pending.id), array[]::uuid[])
+      into v_pending_reservation_ids
+    from (
+      select r.id
+      from public.reservations r
+      join public.clients c on c.id = r.client_id
+      where regexp_replace(coalesce(c.document, ''), '[^0-9]', '', 'g') = v_client_document
+        and lower(coalesce(r.status, '')) = 'solicitacao_recebida'
+      for update of r
+    ) as pending;
+
+    delete from public.reservation_toys
+    where reservation_id = any(v_pending_reservation_ids);
+
+    delete from public.reservations
+    where id = any(v_pending_reservation_ids)
+      and lower(coalesce(status, '')) = 'solicitacao_recebida';
+    get diagnostics v_deleted_count = row_count;
+
+    if v_deleted_count = 0 then
+      raise exception using errcode = 'P0001', message = 'A solicitação pendente mudou de status. Atualize a página e tente novamente.';
+    end if;
   end if;
 
   v_availability := public.check_reservation_availability(
@@ -408,11 +523,11 @@ begin
       total_amount = v_total_amount
   where id = v_reservation_id;
 
-  return v_reservation_id;
+  return jsonb_build_object('status', 'created', 'reservation_id', v_reservation_id);
 end;
 $$;
 
 revoke all on function public.check_reservation_availability(uuid, date, date, jsonb) from public;
-revoke all on function public.submit_reservation_request(text, text, text, text, uuid, date, date, time, jsonb, text, text, boolean) from public;
+revoke all on function public.submit_reservation_request(text, text, text, text, uuid, date, date, time, jsonb, text, text, boolean, text) from public;
 grant execute on function public.check_reservation_availability(uuid, date, date, jsonb) to anon, authenticated;
-grant execute on function public.submit_reservation_request(text, text, text, text, uuid, date, date, time, jsonb, text, text, boolean) to anon, authenticated;
+grant execute on function public.submit_reservation_request(text, text, text, text, uuid, date, date, time, jsonb, text, text, boolean, text) to anon, authenticated;

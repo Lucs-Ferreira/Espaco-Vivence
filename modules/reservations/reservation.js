@@ -58,7 +58,11 @@ export async function getMonitorDailyRate() {
   return rate;
 }
 
-export async function createReservationRequest(reservationData, selectedToys = []) {
+export async function createReservationRequest(
+  reservationData,
+  selectedToys = [],
+  existingAction = 'check',
+) {
   const { data, error } = await supabase.rpc('submit_reservation_request', {
     p_client_name: reservationData.client_name,
     p_client_email: reservationData.client_email,
@@ -72,6 +76,7 @@ export async function createReservationRequest(reservationData, selectedToys = [
     p_toys: selectedToys.map(({ toy_id, quantity }) => ({ toy_id, quantity })),
     p_delivery_address: reservationData.delivery_address,
     p_monitor_required: reservationData.monitor_required,
+    p_existing_action: existingAction,
   });
 
   if (error) throw error;

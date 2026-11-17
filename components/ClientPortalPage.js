@@ -93,6 +93,20 @@ function getReservationErrorMessage(error, action) {
     return addErrorReference('O banco rejeitou um campo obrigatório. Confira os dados informados.', error);
   }
 
+  if (code === '23505') {
+    const constraint = /unique constraint "([^"]+)"/i.exec(message)?.[1];
+    if (constraint && /document|cpf/i.test(constraint)) {
+      return addErrorReference(
+        'O Supabase ainda está tratando o CPF/CNPJ como único. Atualize a migração sql/reservation-request.sql.',
+        error,
+      );
+    }
+    return addErrorReference(
+      'O banco encontrou um cadastro duplicado. Atualize a migração sql/reservation-request.sql e tente novamente.',
+      error,
+    );
+  }
+
   if (['22023', 'P0001'].includes(code) && message) {
     return addErrorReference(message, error);
   }
@@ -177,6 +191,8 @@ export default function ClientPortalPage({ cartOnly = false }) {
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
   const [submittingReservation, setSubmittingReservation] = useState(false);
+  const [reservationConflict, setReservationConflict] = useState(null);
+  const [reservationSubmission, setReservationSubmission] = useState(null);
   const [reservationModalOpen, setReservationModalOpen] = useState(false);
   const [cartConfirmationMessage, setCartConfirmationMessage] = useState('');
   const [catalogError, setCatalogError] = useState('');
@@ -540,13 +556,87 @@ export default function ClientPortalPage({ cartOnly = false }) {
       setAvailabilityError('Informe o horário do evento.');
       return;
     }
-    if (!availability?.available) {
-      setAvailabilityError('Aguarde a verificação de disponibilidade antes de continuar.');
-      return;
-    }
-
     setAvailabilityError('');
     setCheckoutStarted(true);
+  }
+
+  async function submitReservationWithAction(existingAction, submission) {
+    setAvailabilityError('');
+    setSubmittingReservation(true);
+
+    try {
+      const result = await createReservationRequest(
+        submission.reservationData,
+        submission.selectedToys,
+        existingAction,
+      );
+
+      if (result?.status === 'pending_existing') {
+        setReservationSubmission(submission);
+        setReservationConflict({ type: 'pending' });
+        return;
+      }
+
+      if (result?.status === 'approved_existing') {
+        setReservationSubmission(submission);
+        setReservationConflict({ type: 'approved' });
+        return;
+      }
+
+      if (result?.status !== 'created' || !result.reservation_id) {
+        throw new Error('O Supabase retornou uma resposta inválida ao enviar a solicitação.');
+      }
+
+      setReservationConflict(null);
+      setReservationSubmission(null);
+      clearCart();
+      const today = formatDateForBrazil(getLocalDateValue());
+      setReservationForm({
+        client_name: '',
+        client_email: '',
+        client_phone: '',
+        client_document: '',
+        delivery_street: '',
+        delivery_number: '',
+        delivery_complement: '',
+        delivery_neighborhood: '',
+        delivery_city: '',
+        delivery_state: '',
+        delivery_postal_code: '',
+        start_date: today,
+        end_date: today,
+        start_time: '',
+        notes: '',
+      });
+      router.replace('/?solicitacao=enviada', { scroll: false });
+    } catch (error) {
+      const missingColumn = getMissingRequiredColumn(error);
+      console.warn('Solicitação de reserva não enviada:', {
+        code: error?.code,
+        message: error?.message,
+        requiredColumn: missingColumn?.column,
+        requiredTable: missingColumn?.table,
+      });
+      setAvailabilityError(getReservationErrorMessage(error, 'enviar a solicitação'));
+    } finally {
+      setSubmittingReservation(false);
+    }
+  }
+
+  async function confirmReservationConflict() {
+    if (!reservationConflict || !reservationSubmission || submittingReservation) return;
+
+    const existingAction = reservationConflict.type === 'pending'
+      ? 'delete_pending_and_submit'
+      : 'allow_new';
+    const submission = reservationSubmission;
+    setReservationConflict(null);
+    await submitReservationWithAction(existingAction, submission);
+  }
+
+  function dismissReservationConflict() {
+    setReservationConflict(null);
+    setReservationSubmission(null);
   }
 
   async function submitReservation(event) {
@@ -583,64 +673,24 @@ export default function ClientPortalPage({ cartOnly = false }) {
       setAvailabilityError('Informe um CPF com 11 dígitos ou um CNPJ com 14 dígitos.');
       return;
     }
-    if (!availability?.available) {
-      setAvailabilityError('Verifique a disponibilidade antes de enviar a solicitação.');
-      return;
-    }
-
-    setSubmittingReservation(true);
-    try {
-      await createReservationRequest(
-        {
-          ...reservationForm,
-          client_document: clientDocument,
-          space_id: selectedSpaceId || null,
-          start_date: startDate,
-          end_date: endDate,
-          delivery_address: [
-            `${reservationForm.delivery_street.trim()}, ${reservationForm.delivery_number.trim()}`,
-            reservationForm.delivery_complement.trim(),
-            reservationForm.delivery_neighborhood.trim(),
-            `${reservationForm.delivery_city.trim()} - ${reservationForm.delivery_state.trim()}`,
-            `CEP ${reservationForm.delivery_postal_code.trim()}`,
-          ].filter(Boolean).join(', '),
-          monitor_required: monitorRequired,
-        },
-        toysForReservation,
-      );
-
-      clearCart();
-      const today = formatDateForBrazil(getLocalDateValue());
-      setReservationForm({
-        client_name: '',
-        client_email: '',
-        client_phone: '',
-        client_document: '',
-        delivery_street: '',
-        delivery_number: '',
-        delivery_complement: '',
-        delivery_neighborhood: '',
-        delivery_city: '',
-        delivery_state: '',
-        delivery_postal_code: '',
-        start_date: today,
-        end_date: today,
-        start_time: '',
-        notes: '',
-      });
-      router.replace('/?solicitacao=enviada', { scroll: false });
-    } catch (error) {
-      const missingColumn = getMissingRequiredColumn(error);
-      console.warn('Solicitação de reserva não enviada:', {
-        code: error?.code,
-        message: error?.message,
-        requiredColumn: missingColumn?.column,
-        requiredTable: missingColumn?.table,
-      });
-      setAvailabilityError(getReservationErrorMessage(error, 'enviar a solicitação'));
-    } finally {
-      setSubmittingReservation(false);
-    }
+    await submitReservationWithAction('check', {
+      reservationData: {
+        ...reservationForm,
+        client_document: clientDocument,
+        space_id: selectedSpaceId || null,
+        start_date: startDate,
+        end_date: endDate,
+        delivery_address: [
+          `${reservationForm.delivery_street.trim()}, ${reservationForm.delivery_number.trim()}`,
+          reservationForm.delivery_complement.trim(),
+          reservationForm.delivery_neighborhood.trim(),
+          `${reservationForm.delivery_city.trim()} - ${reservationForm.delivery_state.trim()}`,
+          `CEP ${reservationForm.delivery_postal_code.trim()}`,
+        ].filter(Boolean).join(', '),
+        monitor_required: monitorRequired,
+      },
+      selectedToys: toysForReservation,
+    });
   }
 
   const cartItemCount =
@@ -1317,7 +1367,6 @@ export default function ClientPortalPage({ cartOnly = false }) {
                         disabled={
                           cartItemCount === 0
                           || checkingAvailability
-                          || !availability?.available
                           || monitorDailyRate === null
                         }
                       >
@@ -1339,7 +1388,6 @@ export default function ClientPortalPage({ cartOnly = false }) {
                         disabled={
                           submittingReservation
                           || checkingAvailability
-                          || !availability?.available
                           || monitorDailyRate === null
                         }
                       >
@@ -1565,6 +1613,32 @@ export default function ClientPortalPage({ cartOnly = false }) {
           router.push('/carrinho');
         }}
       />
+
+      {reservationConflict?.type === 'pending' && (
+        <Modal
+          isOpen
+          type="confirm"
+          title="Solicitação pendente encontrada"
+          message="Há solicitações ainda não aprovadas associadas a este CPF. Se continuar, elas serão excluídas e esta nova solicitação será enviada."
+          onClose={dismissReservationConflict}
+          onConfirm={confirmReservationConflict}
+          confirmText="Excluir e enviar nova"
+          confirmIcon="fa-trash-can"
+        />
+      )}
+
+      {reservationConflict?.type === 'approved' && (
+        <Modal
+          isOpen
+          type="success"
+          title="Solicitação anterior aprovada"
+          message="Já existe uma solicitação aprovada associada a este CPF. Deseja enviar uma nova solicitação?"
+          onClose={dismissReservationConflict}
+          closeText="Voltar"
+          secondaryText="Enviar nova solicitação"
+          onSecondary={confirmReservationConflict}
+        />
+      )}
 
       {reservationModalOpen && !cartOnly && (
         <div className="modal-backdrop-vivence" role="presentation">
