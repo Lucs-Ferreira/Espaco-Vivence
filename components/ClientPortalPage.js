@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { supabase } from '../config/supabase';
+import Modal from './Modal';
 import {
   checkReservationAvailability,
   createReservationRequest,
@@ -99,6 +100,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
   const [availabilityError, setAvailabilityError] = useState('');
   const [submittingReservation, setSubmittingReservation] = useState(false);
   const [reservationModalOpen, setReservationModalOpen] = useState(false);
+  const [cartConfirmationMessage, setCartConfirmationMessage] = useState('');
   const [catalogError, setCatalogError] = useState('');
 
   // Guarda qual foto está selecionada em cada card (pelo ID do item)
@@ -332,6 +334,10 @@ export default function ClientPortalPage({ cartOnly = false }) {
   function openReservationForm(spaceId = '', toyId = '') {
     if (!cartLoaded) return;
 
+    const addedItemName = spaceId
+      ? spaces.find((space) => space.id === spaceId)?.name || 'Espaço'
+      : toys.find((toy) => toy.id === toyId)?.name || 'Brinquedo';
+
     if (spaceId) {
       setSelectedSpaceId(spaceId);
       setIncludeToysInSpace(Object.values(selectedToyQuantities).some((quantity) => quantity > 0));
@@ -348,6 +354,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
     setCheckingAvailability(false);
     setAvailabilityError('');
     if (cartOnly) setReservationFormOpen(true);
+    else setCartConfirmationMessage(`${addedItemName} foi adicionado ao carrinho.`);
     setCheckoutStarted(false);
   }
 
@@ -1461,6 +1468,19 @@ export default function ClientPortalPage({ cartOnly = false }) {
           </small>
         </div>
       </footer>}
+
+      <Modal
+        isOpen={Boolean(cartConfirmationMessage)}
+        title="Adicionado ao carrinho"
+        message={cartConfirmationMessage}
+        onClose={() => setCartConfirmationMessage('')}
+        closeText="Continuar na página"
+        secondaryText="Ir para o carrinho"
+        onSecondary={() => {
+          setCartConfirmationMessage('');
+          router.push('/carrinho');
+        }}
+      />
 
       {reservationModalOpen && !cartOnly && (
         <div className="modal-backdrop-vivence" role="presentation">

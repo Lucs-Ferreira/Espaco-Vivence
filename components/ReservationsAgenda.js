@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../config/supabase';
+import Modal from './Modal';
 
 const statusLabels = {
   solicitacao_recebida: 'Solicitação recebida',
@@ -10,6 +11,7 @@ const statusLabels = {
   aprovado: 'Aprovada',
   pendente_assinatura: 'Pendente assinatura',
   cancelada: 'Cancelada',
+  rejeitada: 'Recusada',
 };
 
 const statusClasses = {
@@ -19,6 +21,7 @@ const statusClasses = {
   aprovado: 'badge-vivence-success',
   pendente_assinatura: 'badge-vivence-neutral',
   cancelada: 'badge-vivence-error',
+  rejeitada: 'badge-vivence-error',
 };
 
 const filters = [
@@ -113,6 +116,8 @@ export default function ReservationsAgenda() {
   const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
+  const [updatingAction, setUpdatingAction] = useState(null);
+  const [reservationToReject, setReservationToReject] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [statusFilter, setStatusFilter] = useState('todas');
@@ -267,15 +272,16 @@ export default function ReservationsAgenda() {
     setSelectedDate(getLocalDateString(nextMonth));
   }
 
-  async function approveReservation(reservation) {
+  async function updateReservationStatus(reservation, status, action, nextMessage) {
     setUpdatingId(reservation.id);
+    setUpdatingAction(action);
     setErrorMessage('');
     setSuccessMessage('');
 
     try {
       const { data, error } = await supabase
         .from('reservations')
-        .update({ status: 'aguardando_pagamento' })
+        .update({ status })
         .eq('id', reservation.id)
         .select('id')
         .maybeSingle();
@@ -286,17 +292,40 @@ export default function ReservationsAgenda() {
       setReservations((current) =>
         current.map((item) =>
           item.id === reservation.id
-            ? { ...item, status: 'aguardando_pagamento' }
+            ? { ...item, status }
             : item,
         ),
       );
-      setSuccessMessage('Solicitação aprovada. A reserva está aguardando pagamento.');
+      setSuccessMessage(nextMessage);
     } catch (error) {
-      console.error('Erro ao aprovar solicitação:', error);
-      setErrorMessage('Não foi possível aprovar a solicitação. Confira a permissão no Supabase.');
+      console.error(`Erro ao ${action} solicitação:`, error);
+      setErrorMessage(`Não foi possível ${action} a solicitação. Confira a permissão no Supabase.`);
     } finally {
       setUpdatingId(null);
+      setUpdatingAction(null);
     }
+  }
+
+  function approveReservation(reservation) {
+    return updateReservationStatus(
+      reservation,
+      'aguardando_pagamento',
+      'aprovar',
+      'Solicitação aprovada. A reserva está aguardando pagamento.',
+    );
+  }
+
+  function rejectReservation() {
+    if (!reservationToReject) return;
+
+    const reservation = reservationToReject;
+    setReservationToReject(null);
+    return updateReservationStatus(
+      reservation,
+      'rejeitada',
+      'recusar',
+      'Solicitação recusada.',
+    );
   }
 
   return (
@@ -627,21 +656,42 @@ export default function ReservationsAgenda() {
                       data-label="Ação"
                     >
                       {reservation.status === 'solicitacao_recebida' ? (
-                        <button
-                          type="button"
-                          className="btn btn-vivence-primary btn-sm"
-                          onClick={() => approveReservation(reservation)}
-                          disabled={updatingId === reservation.id}
-                        >
-                          {updatingId === reservation.id ? (
-                            <i className="fa-solid fa-spinner fa-spin"></i>
-                          ) : (
-                            <>
-                              <i className="fa-solid fa-check me-1"></i>
-                              Aprovar
-                            </>
-                          )}
-                        </button>
+                        <div className="reservation-table-action-buttons d-flex flex-wrap justify-content-end gap-2">
+                          <button
+                            type="button"
+                            className="btn btn-vivence-primary btn-sm"
+                            onClick={() => approveReservation(reservation)}
+                            disabled={updatingId === reservation.id}
+                          >
+                            {updatingId === reservation.id && updatingAction === 'aprovar' ? (
+                              <i className="fa-solid fa-spinner fa-spin"></i>
+                            ) : (
+                              <>
+                                <i className="fa-solid fa-check me-1"></i>
+                                Aprovar
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-vivence-error btn-sm"
+                            onClick={() => {
+                              setErrorMessage('');
+                              setSuccessMessage('');
+                              setReservationToReject(reservation);
+                            }}
+                            disabled={updatingId === reservation.id}
+                          >
+                            {updatingId === reservation.id && updatingAction === 'recusar' ? (
+                              <i className="fa-solid fa-spinner fa-spin"></i>
+                            ) : (
+                              <>
+                                <i className="fa-solid fa-ban me-1"></i>
+                                Recusar
+                              </>
+                            )}
+                          </button>
+                        </div>
                       ) : (
                         <span className="text-vivence-body small">Sem ações</span>
                       )}
@@ -653,6 +703,19 @@ export default function ReservationsAgenda() {
           </div>
         )}
       </div>
+
+      <Modal
+        isOpen={Boolean(reservationToReject)}
+        title="Recusar solicitação?"
+        message={reservationToReject
+          ? `A solicitação de ${reservationToReject.clients?.name || 'cliente sem nome'} para ${formatReservationDate(reservationToReject)} será recusada e deixará de bloquear a disponibilidade.`
+          : ''}
+        type="confirm"
+        confirmText="Recusar"
+        confirmIcon="fa-ban"
+        onClose={() => setReservationToReject(null)}
+        onConfirm={rejectReservation}
+      />
     </section>
   );
 }
