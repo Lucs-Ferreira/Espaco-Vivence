@@ -60,6 +60,84 @@ function getMissingRequiredColumn(error) {
   return match ? { column: match[1], table: match[2] } : null;
 }
 
+function addErrorReference(message, error) {
+  const reference = error?.code || (error?.status > 0 ? `HTTP ${error.status}` : '');
+  return reference ? `${message} (código ${reference})` : message;
+}
+
+function getReservationErrorMessage(error, action) {
+  const code = error?.code;
+  const message = typeof error?.message === 'string' ? error.message.trim() : '';
+
+  if (code === 'PGRST202') {
+    return addErrorReference(
+      'A função de reserva está desatualizada no Supabase. Execute novamente sql/reservation-request.sql.',
+      error,
+    );
+  }
+
+  if (code === '23502') {
+    const missingColumn = getMissingRequiredColumn(error);
+    if (missingColumn?.table === 'clients' && missingColumn.column === 'document') {
+      return addErrorReference(
+        'O Supabase ainda está rejeitando o CPF/CNPJ como vazio. Atualize a migração sql/reservation-request.sql.',
+        error,
+      );
+    }
+    if (missingColumn) {
+      return addErrorReference(
+        `O banco informou que falta preencher "${missingColumn.column}" na tabela "${missingColumn.table}".`,
+        error,
+      );
+    }
+    return addErrorReference('O banco rejeitou um campo obrigatório. Confira os dados informados.', error);
+  }
+
+  if (['22023', 'P0001'].includes(code) && message) {
+    return addErrorReference(message, error);
+  }
+
+  if (code === '42501' || error?.status === 403) {
+    return addErrorReference(
+      'O Supabase bloqueou a operação por uma regra de acesso. Confira as permissões do projeto.',
+      error,
+    );
+  }
+
+  if (error?.status === 401) {
+    return addErrorReference('A autorização expirou. Atualize a página e tente novamente.', error);
+  }
+
+  if (code === '23503') {
+    return addErrorReference(
+      'Um espaço ou brinquedo do carrinho não está mais disponível. Atualize o catálogo e confira a disponibilidade.',
+      error,
+    );
+  }
+
+  if (['22P02', '23514'].includes(code)) {
+    return addErrorReference(
+      'Algum dado está em formato inválido. Confira CPF/CNPJ, telefone, datas, horário e endereço.',
+      error,
+    );
+  }
+
+  if (
+    error?.name === 'AbortError'
+    || error?.status === 0
+    || /failed to fetch|network|load failed|timed out|timeout/i.test(message)
+  ) {
+    return action === 'enviar a solicitação'
+      ? 'A conexão caiu durante o envio e não foi possível confirmar o resultado. Confira com a equipe antes de tentar novamente para evitar uma solicitação duplicada.'
+      : 'A conexão caiu durante a verificação. Confira a internet e tente novamente.';
+  }
+
+  return addErrorReference(
+    `Não foi possível ${action}. Confira sua conexão e os dados informados; tente novamente.`,
+    error,
+  );
+}
+
 export default function ClientPortalPage({ cartOnly = false }) {
   const router = useRouter();
   const [spaces, setSpaces] = useState([]);
@@ -294,9 +372,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
         console.error('Erro ao verificar disponibilidade:', error);
         if (active) {
           setAvailability(null);
-          setAvailabilityError(
-            'Não foi possível confirmar a disponibilidade. Confira se o SQL de reservas foi aplicado.',
-          );
+          setAvailabilityError(getReservationErrorMessage(error, 'verificar a disponibilidade'));
         }
       } finally {
         if (active) setCheckingAvailability(false);
@@ -316,6 +392,17 @@ export default function ClientPortalPage({ cartOnly = false }) {
     selectedToyQuantities,
     includeToysInSpace,
   ]);
+
+  useEffect(() => {
+    if (!availabilityError) return;
+    const errorAlert = document.getElementById('reservation-form-error');
+    if (!errorAlert) return;
+
+    const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      ? 'auto'
+      : 'smooth';
+    errorAlert.scrollIntoView({ behavior, block: 'center' });
+  }, [availabilityError]);
 
   useEffect(() => {
     if (reservationFormOpen) {
@@ -360,6 +447,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
 
   function updateReservationField(event) {
     const { name, value } = event.target;
+    setAvailabilityError('');
     const isDateField = name === 'start_date' || name === 'end_date';
     const isScheduleField = isDateField || name === 'start_time';
     let updatedValue = value;
@@ -425,6 +513,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
   }
 
   function continueToCheckout() {
+    setAvailabilityError('');
     const startDate = parseBrazilianDate(reservationForm.start_date);
     const endDate = parseBrazilianDate(reservationForm.end_date);
     const selectedToys = Object.entries(selectedToyQuantities)
@@ -548,19 +637,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
         requiredColumn: missingColumn?.column,
         requiredTable: missingColumn?.table,
       });
-      const errorMessage =
-        error?.code === 'PGRST202'
-          ? 'A função de reserva está desatualizada no Supabase. Execute novamente a migração sql/reservation-request.sql.'
-          : error?.code === '23502'
-            ? missingColumn?.table === 'clients' && missingColumn.column === 'document'
-              ? 'O Supabase ainda está rejeitando o CPF/CNPJ como vazio. Execute novamente sql/reservation-request.sql no SQL Editor para atualizar a função de reserva.'
-              : missingColumn
-                ? `O banco apontou o campo obrigatório "${missingColumn.column}" da tabela "${missingColumn.table}" como vazio. Confira a migração sql/reservation-request.sql.`
-                : 'O banco rejeitou um campo obrigatório. Confira o CPF/CNPJ e execute novamente sql/reservation-request.sql no Supabase.'
-            : ['22023', 'P0001'].includes(error?.code) && error?.message
-              ? error.message
-              : 'Não foi possível enviar. A disponibilidade pode ter mudado ou algum dado precisa ser conferido.';
-      setAvailabilityError(errorMessage);
+      setAvailabilityError(getReservationErrorMessage(error, 'enviar a solicitação'));
     } finally {
       setSubmittingReservation(false);
     }
@@ -673,9 +750,6 @@ export default function ClientPortalPage({ cartOnly = false }) {
                 <h2 id="reservation-form-title" className="h3 fw-bold text-vivence-dark mb-1">
                   Carrinho de aluguel
                 </h2>
-                <p className="text-vivence-body mb-0">
-                  Seus itens e datas ficam salvos neste navegador por até 7 dias.
-                </p>
               </div>
               {cartOnly ? (
                 <Link className="btn btn-vivence-outline" href="/" aria-label="Voltar ao catálogo">
@@ -697,7 +771,17 @@ export default function ClientPortalPage({ cartOnly = false }) {
             </div>
 
             {cartError && <div className="alert alert-warning" role="status">{cartError}</div>}
-            {availabilityError && <div className="alert alert-danger" role="alert">{availabilityError}</div>}
+            {availabilityError && (
+              <div
+                id="reservation-form-error"
+                className="alert alert-danger d-flex align-items-start gap-2"
+                role="alert"
+                tabIndex={-1}
+              >
+                <i className="fa-solid fa-triangle-exclamation mt-1" aria-hidden="true"></i>
+                <span>{availabilityError}</span>
+              </div>
+            )}
             {!checkoutStarted && cartItemCount > 0 && (
               <div className="alert alert-light border mb-4" aria-live="polite">
                 <h3 className="h5 fw-bold text-vivence-dark">Resumo de valores</h3>
@@ -978,7 +1062,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
                 </div>
                 <div className="col-6 col-md-4">
                   <label htmlFor="reservation-delivery-complement" className="form-label fw-semibold">
-                    Complemento (opcional)
+                    Complemento
                   </label>
                   <input
                     id="reservation-delivery-complement"
@@ -1135,7 +1219,7 @@ export default function ClientPortalPage({ cartOnly = false }) {
                 {checkoutStarted && (
                   <div className="col-12">
                     <label htmlFor="reservation-notes" className="form-label fw-semibold">
-                      Observações (opcional)
+                      Observações
                     </label>
                     <textarea
                       id="reservation-notes"
